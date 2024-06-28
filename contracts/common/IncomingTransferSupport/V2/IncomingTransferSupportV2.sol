@@ -5,11 +5,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC20TransferHelper} from "../../../transferHelpers/ERC20TransferHelper.sol";
 
-/// @title IncomingTransferSupportV1
+/// @title IncomingTransferSupportV2
 /// @author tbtstl <t@zora.co>
 /// @notice This contract extension supports receiving funds from an external user
-/// @dev Due to its reliance on `msg.value`, this contract is not suitable for use in multicall scenarios.
-contract IncomingTransferSupportV1 {
+/// @dev this version use `address(this).balance` instead of `msg.value`,
+///   making the contract suitable for multicall scenarios
+contract IncomingTransferSupportV2 {
     using SafeERC20 for IERC20;
 
     /// @notice The ZORA ERC-20 Transfer Helper
@@ -24,7 +25,7 @@ contract IncomingTransferSupportV1 {
     /// @param _currency The currency to receive funds in, or address(0) for ETH
     function _handleIncomingTransfer(uint256 _amount, address _currency) internal {
         if (_currency == address(0)) {
-            require(msg.value >= _amount, "_handleIncomingTransfer msg value less than expected amount");
+            require(address(this).balance >= _amount, "_handleIncomingTransfer contract balance less than expected amount");
         } else {
             // We must check the balance that was actually transferred to this contract,
             // as some tokens impose a transfer fee and would not actually transfer the
