@@ -11,6 +11,7 @@ import {ZoraProtocolFeeSettings} from "../../../../auxiliary/ZoraProtocolFeeSett
 import {ERC20TransferHelper} from "../../../../transferHelpers/ERC20TransferHelper.sol";
 import {ERC721TransferHelper} from "../../../../transferHelpers/ERC721TransferHelper.sol";
 import {RoyaltyEngine} from "../../../utils/modules/RoyaltyEngine.sol";
+import {Multicall} from "../../../../common/Multicall/Multicall.sol";
 
 import {TestERC721} from "../../../utils/tokens/TestERC721.sol";
 import {WETH} from "../../../utils/tokens/WETH.sol";
@@ -19,6 +20,8 @@ import {VM} from "../../../utils/VM.sol";
 /// @title AskV1_1Test
 /// @notice Unit Tests for Asks v1.1
 contract AsksV1_1Test is DSTest {
+    event Refund(address indexed recipient, uint256 amount);
+
     VM internal vm;
 
     ZoraRegistrar internal registrar;
@@ -30,10 +33,12 @@ contract AsksV1_1Test is DSTest {
 
     AsksV1_1 internal asks;
     TestERC721 internal token;
+    TestERC721 internal otherToken;
     WETH internal weth;
 
     Zorb internal seller;
     Zorb internal sellerFundsRecipient;
+    Zorb internal otherSellerFundsRecipient;
     Zorb internal operator;
     Zorb internal otherSeller;
     Zorb internal buyer;
@@ -59,6 +64,7 @@ contract AsksV1_1Test is DSTest {
         // Create users
         seller = new Zorb(address(ZMM));
         sellerFundsRecipient = new Zorb(address(ZMM));
+        otherSellerFundsRecipient = new Zorb(address(ZMM));
         operator = new Zorb(address(ZMM));
         otherSeller = new Zorb(address(ZMM));
         buyer = new Zorb(address(ZMM));
@@ -69,6 +75,7 @@ contract AsksV1_1Test is DSTest {
         // Deploy mocks
         royaltyEngine = new RoyaltyEngine(address(royaltyRecipient));
         token = new TestERC721();
+        otherToken = new TestERC721();
         weth = new WETH();
 
         // Deploy Asks v1.1
@@ -81,6 +88,7 @@ contract AsksV1_1Test is DSTest {
 
         // Mint seller token
         token.mint(address(seller), 0);
+        otherToken.mint(address(seller), 1);
 
         // Buyer swap 50 ETH <> 50 WETH
         vm.prank(address(buyer));
@@ -93,6 +101,8 @@ contract AsksV1_1Test is DSTest {
         // Seller approve ERC721TransferHelper
         vm.prank(address(seller));
         token.setApprovalForAll(address(erc721TransferHelper), true);
+        vm.prank(address(seller));
+        otherToken.setApprovalForAll(address(erc721TransferHelper), true);
 
         // Buyer approve ERC20TransferHelper
         vm.prank(address(buyer));
@@ -304,5 +314,116 @@ contract AsksV1_1Test is DSTest {
         vm.prank(address(buyer));
         vm.expectRevert("fillAsk _fillCurrency must match ask currency");
         asks.fillAsk(address(token), 0, address(0), 0.5 ether, address(finder));
+    }
+
+    /// ------------ MULTICALL ------------ ///
+    function testMulticall_CreateAsks() public {
+        vm.prank(address(seller));
+
+        Multicall.Call3[] memory calls = new Multicall.Call3[](2);
+        calls[0] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(token), 0, 1 ether, address(0), address(sellerFundsRecipient), 1000)
+        );
+        calls[1] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(otherToken), 1, 2 ether, address(0), address(otherSellerFundsRecipient), 1100)
+        );
+        asks.aggregate3(calls);
+
+        (address askSeller1, address fundsRecipient1, address askCurrency1, uint16 findersFeeBps1, uint256 askPrice1) = asks.askForNFT(
+            address(token),
+            0
+        );
+        require(askSeller1 == address(seller));
+        require(fundsRecipient1 == address(sellerFundsRecipient));
+        require(askCurrency1 == address(0));
+        require(askPrice1 == 1 ether);
+        require(findersFeeBps1 == 1000);
+
+        (address askSeller2, address fundsRecipient2, address askCurrency2, uint16 findersFeeBps2, uint256 askPrice2) = asks.askForNFT(
+            address(otherToken),
+            1
+        );
+        require(askSeller2 == address(seller));
+        require(fundsRecipient2 == address(otherSellerFundsRecipient));
+        require(askCurrency2 == address(0));
+        require(askPrice2 == 2 ether);
+        require(findersFeeBps2 == 1100);
+    }
+
+    function testMulticall_FillAsks() public {
+        vm.prank(address(seller));
+
+        Multicall.Call3[] memory askCalls = new Multicall.Call3[](2);
+        askCalls[0] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(token), 0, 1 ether, address(0), address(sellerFundsRecipient), 1000)
+        );
+        askCalls[1] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(otherToken), 1, 2 ether, address(0), address(otherSellerFundsRecipient), 1100)
+        );
+        asks.aggregate3(askCalls);
+
+        vm.prank(address(buyer));
+
+        Multicall.Call3[] memory fillCalls = new Multicall.Call3[](2);
+        fillCalls[0] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.fillAsk.selector, address(token), 0, address(0), 1 ether, address(finder))
+        );
+        fillCalls[1] = Multicall.Call3(
+            address(asks),
+            true,
+            abi.encodeWithSelector(AsksV1_1.fillAsk.selector, address(otherToken), 1, address(0), 2 ether, address(finder))
+        );
+        asks.aggregate3{value: 3 ether}(fillCalls);
+
+        require(token.ownerOf(0) == address(buyer));
+        require(otherToken.ownerOf(1) == address(buyer));
+    }
+
+    function testMulticall_AskDoNotHoldEther() public {
+        vm.prank(address(seller));
+
+        Multicall.Call3[] memory askCalls = new Multicall.Call3[](2);
+        askCalls[0] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(token), 0, 1 ether, address(0), address(sellerFundsRecipient), 1000)
+        );
+        askCalls[1] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.createAsk.selector, address(otherToken), 1, 2 ether, address(0), address(otherSellerFundsRecipient), 1100)
+        );
+        asks.aggregate3(askCalls);
+
+        vm.prank(address(buyer));
+
+        Multicall.Call3[] memory fillCalls = new Multicall.Call3[](2);
+        fillCalls[0] = Multicall.Call3(
+            address(asks),
+            false,
+            abi.encodeWithSelector(AsksV1_1.fillAsk.selector, address(token), 0, address(0), 1 ether, address(finder))
+        );
+        fillCalls[1] = Multicall.Call3(
+            address(asks),
+            true,
+            abi.encodeWithSelector(AsksV1_1.fillAsk.selector, address(otherToken), 1, address(0), 3 ether, address(finder))
+        );
+
+        vm.expectEmit(true, true, true, false);
+        emit Refund(address(buyer), 1 ether);
+        asks.aggregate3{value: 3 ether}(fillCalls);
+
+        require(token.ownerOf(0) == address(buyer));
+        require(otherToken.ownerOf(1) == address(seller));
     }
 }
