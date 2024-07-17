@@ -5,14 +5,16 @@ import {ReentrancyGuard} from "@rari-capital/solmate/src/utils/ReentrancyGuard.s
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ERC721TransferHelper} from "../../../transferHelpers/ERC721TransferHelper.sol";
 import {UniversalExchangeEventV1} from "../../../common/UniversalExchangeEvent/V1/UniversalExchangeEventV1.sol";
-import {IncomingTransferSupportV1} from "../../../common/IncomingTransferSupport/V1/IncomingTransferSupportV1.sol";
-import {FeePayoutSupportV1} from "../../../common/FeePayoutSupport/FeePayoutSupportV1.sol";
+import {IncomingTransferSupportV2} from "../../../common/IncomingTransferSupport/V2/IncomingTransferSupportV2.sol";
+import {FeePayoutSupportV2} from "../../../common/FeePayoutSupport/FeePayoutSupportV2.sol";
 import {ModuleNamingSupportV1} from "../../../common/ModuleNamingSupport/ModuleNamingSupportV1.sol";
+import {Multicall} from "../../../common/Multicall/Multicall.sol";
+import {OutgoingTransferSupportV1} from "../../../common/OutgoingTransferSupport/V1/OutgoingTransferSupportV1.sol";
 
 /// @title Asks V1.1
 /// @author tbtstl <t@zora.co>
 /// @notice This module allows sellers to list an owned ERC-721 token for sale for a given price in a given currency, and allows buyers to purchase from those asks
-contract AsksV1_1 is ReentrancyGuard, UniversalExchangeEventV1, IncomingTransferSupportV1, FeePayoutSupportV1, ModuleNamingSupportV1 {
+contract AsksV1_1 is ReentrancyGuard, UniversalExchangeEventV1, IncomingTransferSupportV2, FeePayoutSupportV2, ModuleNamingSupportV1, Multicall {
     /// @dev The indicator to pass all remaining gas when paying out royalties
     uint256 private constant USE_ALL_GAS_FLAG = 0;
 
@@ -75,8 +77,9 @@ contract AsksV1_1 is ReentrancyGuard, UniversalExchangeEventV1, IncomingTransfer
         address _protocolFeeSettings,
         address _wethAddress
     )
-        IncomingTransferSupportV1(_erc20TransferHelper)
-        FeePayoutSupportV1(_royaltyEngine, _protocolFeeSettings, _wethAddress, ERC721TransferHelper(_erc721TransferHelper).ZMM().registrar())
+        IncomingTransferSupportV2(_erc20TransferHelper)
+        FeePayoutSupportV2(_royaltyEngine, _protocolFeeSettings, ERC721TransferHelper(_erc721TransferHelper).ZMM().registrar())
+        OutgoingTransferSupportV1(_wethAddress)
         ModuleNamingSupportV1("Asks: v1.1")
     {
         erc721TransferHelper = ERC721TransferHelper(_erc721TransferHelper);

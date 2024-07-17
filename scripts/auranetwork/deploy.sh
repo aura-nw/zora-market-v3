@@ -156,8 +156,28 @@ else
 fi
 
 # ====
-declare -a CONTRACT_ADDRESSES=( $FEE_SETTINGS_ADDR $ERC20_TRANSFER_HELPER_ADDR $ERC721_TRANSFER_HELPER_ADDR $ROYALTY_ENGINE_ADDR $WETH_ADDR $ASK_CONTRACT_ADDR )
-declare -a CONTRACT_NAMES=( "ZoraProtocolFeeSettings" "ERC20TransferHelper" "ERC721TransferHelper" "RoyaltyEngineV1" "WETH9" "AsksV1_1" )
+if [ "$OFFER_OMNIBUS_ADDR" = "" ]
+then
+  echo -e "${NO_COLOR}Deploy OffersOmnibus..."
+  OFFER_OMNIBUS_DEPLOY_OUTPUT=$(forge create --rpc-url $RPC_URL --private-key $PRIVATE_KEY OffersOmnibus \
+    --constructor-args $ERC20_TRANSFER_HELPER_ADDR $ERC721_TRANSFER_HELPER_ADDR $ROYALTY_ENGINE_ADDR $FEE_SETTINGS_ADDR $WETH_ADDR \
+    --verify --verifier sourcify --verifier-url $VERIFIER_URL)
+  OFFER_OMNIBUS_ADDR=$(echo ${OFFER_OMNIBUS_DEPLOY_OUTPUT#*"Deployed to: "} | head -c 42)
+  echo -e "${GREEN_COLOR}- deployed to: $OFFER_OMNIBUS_ADDR"
+
+  if [[ $OFFER_OMNIBUS_DEPLOY_OUTPUT == *"Contract successfully verified"* ]]; then
+    echo -e "${GREEN_COLOR}- verification result: success"
+  else
+    echo -e "${RED_COLOR}- fail to verify contract $OFFER_OMNIBUS_ADDR"
+    echo "$OFFER_OMNIBUS_DEPLOY_OUTPUT"
+  fi
+else
+  echo -e "${NO_COLOR}Skip deploying OffersOmnibus. Contract address provided ($OFFER_OMNIBUS_ADDR)"
+fi
+
+# ====
+declare -a CONTRACT_ADDRESSES=( $FEE_SETTINGS_ADDR $ERC20_TRANSFER_HELPER_ADDR $ERC721_TRANSFER_HELPER_ADDR $ROYALTY_ENGINE_ADDR $WETH_ADDR $ASK_CONTRACT_ADDR $OFFER_OMNIBUS_ADDR)
+declare -a CONTRACT_NAMES=( "ZoraProtocolFeeSettings" "ERC20TransferHelper" "ERC721TransferHelper" "RoyaltyEngineV1" "WETH9" "AsksV1_1" "OffersOmnibus")
 
 CONTRACT_ADDRESS_LENGTH=${#CONTRACT_ADDRESSES[@]}
 for i in $( seq 1 $CONTRACT_ADDRESS_LENGTH ); do
